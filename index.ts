@@ -60,6 +60,18 @@ async function runCC(prompt: string, sessionId: string | null) {
 			model: "claude-sonnet-4-6",
 			maxTurns: 10,
 			permissionMode: "acceptEdits",
+
+			allowedTools: [
+				"Read",
+				"Write",
+				"Edit",
+				"Bash",
+				"Glob",
+				"Grep",
+				"WebSearch",
+				"WebFetch",
+			],
+
 			settings: { permissions: { allow: ["Bash(git *)"] } },
 			...(sessionId ? { resume: sessionId } : {}),
 		},
