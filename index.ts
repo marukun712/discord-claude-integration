@@ -58,7 +58,7 @@ async function runCC(prompt: string, sessionId: string | null) {
 		options: {
 			cwd: WORK_DIR,
 			model: "claude-sonnet-4-6",
-			maxTurns: 10,
+			maxTurns: 50,
 			permissionMode: "acceptEdits",
 
 			allowedTools: [
