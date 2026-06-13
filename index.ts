@@ -222,11 +222,18 @@ client.on("messageCreate", async (message) => {
 	const pdfAttachments = attachments.filter(
 		(a) => a.contentType === "application/pdf",
 	);
+	const textAttachments = attachments.filter((a) =>
+		a.contentType?.startsWith("text/"),
+	);
 
-	// 画像またはPDFがある場合はContentBlockParam[]に変換する。
+	// 画像・PDF・テキストファイルがある場合はContentBlockParam[]に変換する。
 	// Claude SDKはテキストと画像/ドキュメントを同時に送る場合にこの形式を要求する
 	let prompt: string | ContentBlockParam[];
-	if (imageAttachments.length === 0 && pdfAttachments.length === 0) {
+	if (
+		imageAttachments.length === 0 &&
+		pdfAttachments.length === 0 &&
+		textAttachments.length === 0
+	) {
 		prompt = message.content;
 	} else {
 		const content: ContentBlockParam[] = [];
@@ -243,6 +250,13 @@ client.on("messageCreate", async (message) => {
 			content.push({
 				type: "document",
 				source: { type: "url", url: attachment.url },
+			});
+		}
+		for (const attachment of textAttachments) {
+			const text = await fetch(attachment.url).then((r) => r.text());
+			content.push({
+				type: "document",
+				source: { type: "text", data: text, media_type: "text/plain" },
 			});
 		}
 		prompt = content;
