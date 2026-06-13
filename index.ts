@@ -215,14 +215,18 @@ client.on("messageCreate", async (message) => {
 	const typing = setInterval(() => message.channel.sendTyping(), 8000);
 	message.channel.sendTyping();
 
-	const imageAttachments = [...message.attachments.values()].filter((a) =>
+	const attachments = [...message.attachments.values()];
+	const imageAttachments = attachments.filter((a) =>
 		a.contentType?.startsWith("image/"),
 	);
+	const pdfAttachments = attachments.filter(
+		(a) => a.contentType === "application/pdf",
+	);
 
-	// 画像がある場合はContentBlockParam[]に変換する。
-	// Claude SDKはテキストと画像を同時に送る場合にこの形式を要求する
+	// 画像またはPDFがある場合はContentBlockParam[]に変換する。
+	// Claude SDKはテキストと画像/ドキュメントを同時に送る場合にこの形式を要求する
 	let prompt: string | ContentBlockParam[];
-	if (imageAttachments.length === 0) {
+	if (imageAttachments.length === 0 && pdfAttachments.length === 0) {
 		prompt = message.content;
 	} else {
 		const content: ContentBlockParam[] = [];
@@ -232,6 +236,12 @@ client.on("messageCreate", async (message) => {
 		for (const attachment of imageAttachments) {
 			content.push({
 				type: "image",
+				source: { type: "url", url: attachment.url },
+			});
+		}
+		for (const attachment of pdfAttachments) {
+			content.push({
+				type: "document",
 				source: { type: "url", url: attachment.url },
 			});
 		}
