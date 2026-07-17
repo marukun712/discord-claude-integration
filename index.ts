@@ -49,10 +49,16 @@ async function resolveSession(thread: ThreadChannel): Promise<string | null> {
 	// Discordのメッセージ取得はafter(そのID以降)で絞り込む。
 	// スレッドIDはSnowflake(時刻含む一意ID)なので-1することで
 	// スレッド作成直後から取得でき、余計なメッセージを引いてこない
-	const msgs = await thread.messages.fetch({
-		limit: 5,
-		after: (BigInt(thread.id) - 1n).toString(),
-	});
+	let msgs: Awaited<ReturnType<typeof thread.messages.fetch>>;
+	try {
+		msgs = await thread.messages.fetch({
+			limit: 5,
+			after: (BigInt(thread.id) - 1n).toString(),
+		});
+	} catch (e) {
+		console.error("failed to fetch thread messages:", e);
+		return null;
+	}
 	const marker = [...msgs.values()].find(
 		(m) => m.author.bot && m.content.startsWith(SESSION_PREFIX),
 	);
@@ -88,7 +94,7 @@ async function runCC(
 		prompt: resolvedPrompt,
 		options: {
 			cwd: WORK_DIR,
-			model: "claude-sonnet-4-6",
+			model: "claude-sonnet-5",
 			maxTurns: 50,
 			// Discordからの操作なので確認プロンプトを出さずファイル編集を自動許可する
 			permissionMode: "acceptEdits",
@@ -154,8 +160,12 @@ client.once("clientReady", async (c) => {
 	const route = GUILD_ID
 		? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
 		: Routes.applicationCommands(CLIENT_ID);
-	await rest.put(route, { body: [cmd] });
-	console.log("slash command registered");
+	try {
+		await rest.put(route, { body: [cmd] });
+		console.log("slash command registered");
+	} catch (e) {
+		console.error("failed to register slash command:", e);
+	}
 });
 
 // /cc コマンドでClaude Codeセッションを開始し、専用スレッドを作成する
@@ -197,7 +207,9 @@ client.on("interactionCreate", async (interaction) => {
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error(e);
-		await interaction.editReply(`error: ${msg}`);
+		await interaction
+			.editReply(`error: ${msg}`)
+			.catch((re) => console.error("failed to send error reply:", re));
 	}
 });
 
@@ -212,8 +224,14 @@ client.on("messageCreate", async (message) => {
 
 	// Claudeの処理中にタイピングインジケータを出す。
 	// Discordのタイピング表示は約10秒で消えるため、8秒おきに更新して途切れないようにする
-	const typing = setInterval(() => message.channel.sendTyping(), 8000);
-	message.channel.sendTyping();
+	const typing = setInterval(() => {
+		message.channel
+			.sendTyping()
+			.catch((e) => console.error("sendTyping failed:", e));
+	}, 8000);
+	message.channel
+		.sendTyping()
+		.catch((e) => console.error("sendTyping failed:", e));
 
 	const attachments = [...message.attachments.values()];
 	const imageAttachments = attachments.filter((a) =>
@@ -278,7 +296,9 @@ client.on("messageCreate", async (message) => {
 		clearInterval(typing);
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error(e);
-		await message.reply(`error: ${msg}`);
+		await message
+			.reply(`error: ${msg}`)
+			.catch((re) => console.error("failed to send error reply:", re));
 	}
 });
 
