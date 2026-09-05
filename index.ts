@@ -202,6 +202,7 @@ client.on("interactionCreate", async (interaction) => {
 			await thread.send(chunk);
 
 		sessionCache.set(thread.id, sessionId);
+		await interaction.editReply(`thread: ${thread}`);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error(e);
