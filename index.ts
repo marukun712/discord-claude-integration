@@ -19,7 +19,10 @@ function requireEnv(key: string): string {
 const DISCORD_TOKEN = requireEnv("DISCORD_TOKEN");
 const CLIENT_ID = requireEnv("DISCORD_CLIENT_ID");
 // GUILD_IDが未設定の場合はグローバルコマンドとして登録する(後述)
-const GUILD_ID = process.env.DISCORD_GUILD_ID;
+// カンマ区切りで複数指定すると、それぞれのギルドに限定登録する
+const GUILD_IDS = process.env.DISCORD_GUILD_ID?.split(",")
+	.map((id) => id.trim())
+	.filter((id) => id.length > 0);
 // WORK_DIRはClaude Codeが操作するディレクトリ。未指定ならbotの起動ディレクトリになる
 const WORK_DIR = process.env.WORK_DIR ?? process.cwd();
 
@@ -157,11 +160,11 @@ client.once("clientReady", async (c) => {
 	const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
 	// グローバルコマンドは反映まで最大1時間かかる。
 	// GUILD_IDを指定するとそのサーバー限定コマンドとして即時反映されるため、開発中はこちらを使う
-	const route = GUILD_ID
-		? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
-		: Routes.applicationCommands(CLIENT_ID);
+	const routes = GUILD_IDS?.length
+		? GUILD_IDS.map((id) => Routes.applicationGuildCommands(CLIENT_ID, id))
+		: [Routes.applicationCommands(CLIENT_ID)];
 	try {
-		await rest.put(route, { body: [cmd] });
+		for (const route of routes) await rest.put(route, { body: [cmd] });
 		console.log("slash command registered");
 	} catch (e) {
 		console.error("failed to register slash command:", e);
