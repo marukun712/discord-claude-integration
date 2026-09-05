@@ -193,7 +193,6 @@ client.on("interactionCreate", async (interaction) => {
 
 		const thread = await channel.threads.create({
 			name: title,
-			autoArchiveDuration: 1440,
 		});
 
 		// セッションIDをスレッドの先頭メッセージとして保存する。
@@ -203,7 +202,6 @@ client.on("interactionCreate", async (interaction) => {
 			await thread.send(chunk);
 
 		sessionCache.set(thread.id, sessionId);
-		await interaction.editReply(`thread: ${thread}`);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error(e);
@@ -244,6 +242,10 @@ client.on("messageCreate", async (message) => {
 		a.contentType?.startsWith("text/"),
 	);
 
+	// 送信者ID・ユーザー名をAgentが参照できるようメッセージ本文に埋め込む
+	const senderPrefix = `[from: ${message.author.username} (${message.author.id})]\n`;
+	const textContent = senderPrefix + message.content;
+
 	// 画像・PDF・テキストファイルがある場合はContentBlockParam[]に変換する。
 	// Claude SDKはテキストと画像/ドキュメントを同時に送る場合にこの形式を要求する
 	let prompt: string | ContentBlockParam[];
@@ -252,12 +254,10 @@ client.on("messageCreate", async (message) => {
 		pdfAttachments.length === 0 &&
 		textAttachments.length === 0
 	) {
-		prompt = message.content;
+		prompt = textContent;
 	} else {
 		const content: ContentBlockParam[] = [];
-		if (message.content) {
-			content.push({ type: "text", text: message.content });
-		}
+		content.push({ type: "text", text: textContent });
 		for (const attachment of imageAttachments) {
 			content.push({
 				type: "image",
