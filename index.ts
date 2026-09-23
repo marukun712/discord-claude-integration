@@ -97,7 +97,7 @@ async function runCC(
 		prompt: resolvedPrompt,
 		options: {
 			cwd: WORK_DIR,
-			model: "claude-sonnet-5",
+			model: "claude-opus-5-5",
 			maxTurns: 50,
 			// Discordからの操作なので確認プロンプトを出さずファイル編集を自動許可する
 			permissionMode: "acceptEdits",
