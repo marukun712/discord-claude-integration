@@ -101,6 +101,7 @@ async function runCC(
 			maxTurns: 50,
 			// Discordからの操作なので確認プロンプトを出さずファイル編集を自動許可する
 			permissionMode: "acceptEdits",
+			allowedTools: ["Bash", "WebSearch", "WebFetch"],
 			...(sessionId ? { resume: sessionId } : {}),
 		},
 	})) {
