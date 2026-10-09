@@ -101,21 +101,6 @@ async function runCC(
 			maxTurns: 50,
 			// Discordからの操作なので確認プロンプトを出さずファイル編集を自動許可する
 			permissionMode: "acceptEdits",
-
-			// botが意図しないシステム操作をしないよう、使うツールを明示的に絞っている
-			allowedTools: [
-				"Read",
-				"Write",
-				"Edit",
-				"Bash",
-				"Glob",
-				"Grep",
-				"WebSearch",
-				"WebFetch",
-			],
-
-			// BashはデフォルトでgitコマンドをブロックするがWORK_DIRのバージョン管理に必要なため許可する
-			settings: { permissions: { allow: ["Bash(git *)"] } },
 			...(sessionId ? { resume: sessionId } : {}),
 		},
 	})) {
