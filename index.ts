@@ -103,6 +103,7 @@ async function runCC(
 			permissionMode: "acceptEdits",
 			allowedTools: ["Bash", "WebSearch", "WebFetch"],
 			...(sessionId ? { resume: sessionId } : {}),
+			settingSources: ["project", "local"],
 		},
 	})) {
 		if (msg.type === "result") {
