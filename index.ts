@@ -115,6 +115,16 @@ async function runCC(
 	return { result, sessionId: sid };
 }
 
+// 送信者ID・ユーザー名をAgentが参照できるようメッセージ本文に埋め込む。
+// /ccの初回プロンプトとスレッド内のメッセージで同じ形式にする
+function buildPrompt(
+	username: string,
+	userId: string,
+	content: string,
+): string {
+	return `[from: ${username} (${userId})]\n${content}`;
+}
+
 // Discordの1メッセージ上限(2000文字)を超える応答を複数に分割する
 function splitText(text: string): string[] {
 	return Array.from(
@@ -167,7 +177,11 @@ client.on("interactionCreate", async (interaction) => {
 	// これをしないとDiscordのインタラクションがタイムアウトする
 	await interaction.deferReply();
 	const title = interaction.options.getString("title", true);
-	const prompt = interaction.options.getString("prompt") ?? title;
+	const prompt = buildPrompt(
+		interaction.user.username,
+		interaction.user.id,
+		interaction.options.getString("prompt") ?? title,
+	);
 
 	try {
 		const { result, sessionId } = await runCC(prompt, null);
@@ -233,9 +247,11 @@ client.on("messageCreate", async (message) => {
 		a.contentType?.startsWith("text/"),
 	);
 
-	// 送信者ID・ユーザー名をAgentが参照できるようメッセージ本文に埋め込む
-	const senderPrefix = `[from: ${message.author.username} (${message.author.id})]\n`;
-	const textContent = senderPrefix + message.content;
+	const textContent = buildPrompt(
+		message.author.username,
+		message.author.id,
+		message.content,
+	);
 
 	// 画像・PDF・テキストファイルがある場合はContentBlockParam[]に変換する。
 	// Claude SDKはテキストと画像/ドキュメントを同時に送る場合にこの形式を要求する
