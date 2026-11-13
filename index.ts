@@ -1,4 +1,10 @@
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import nodePath from "node:path";
+import {
+	type CanUseTool,
+	type Options,
+	query,
+	type SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import {
 	BaseGuildTextChannel,
@@ -18,7 +24,7 @@ function requireEnv(key: string): string {
 
 const DISCORD_TOKEN = requireEnv("DISCORD_TOKEN");
 const CLIENT_ID = requireEnv("DISCORD_CLIENT_ID");
-// GUILD_IDが未設定の場合はグローバルコマンドとして登録する(後述)
+// GUILD_IDが未設定の場合はグローバルコマンドとして登録する
 // カンマ区切りで複数指定すると、それぞれのギルドに限定登録する
 const GUILD_IDS = process.env.DISCORD_GUILD_ID?.split(",")
 	.map((id) => id.trim())
@@ -26,12 +32,62 @@ const GUILD_IDS = process.env.DISCORD_GUILD_ID?.split(",")
 // WORK_DIRはClaude Codeが操作するディレクトリ。未指定ならbotの起動ディレクトリになる
 const WORK_DIR = process.env.WORK_DIR ?? process.cwd();
 
+const ADMIN_IDS = new Set(["830704082355617793"]);
+
+const CHARACTER_DIR = nodePath.join(WORK_DIR, "character");
+
+function isInsideCharacterDir(target: unknown): boolean {
+	if (target === undefined) return true;
+	if (typeof target !== "string") return false;
+
+	const resolved = nodePath.resolve(CHARACTER_DIR, target);
+	return (
+		resolved === CHARACTER_DIR ||
+		resolved.startsWith(CHARACTER_DIR + nodePath.sep)
+	);
+}
+
+const canUseToolForUser: CanUseTool = async (toolName, input) => {
+	if (toolName !== "Read" && toolName !== "Grep" && toolName !== "Glob") {
+		return { behavior: "deny", message: `${toolName} は許可されていません` };
+	}
+
+	if (
+		!isInsideCharacterDir(input.file_path) ||
+		!isInsideCharacterDir(input.path)
+	) {
+		return {
+			behavior: "deny",
+			message: "characterディレクトリの外は読み取れません",
+		};
+	}
+
+	return { behavior: "allow" };
+};
+
+function permissionOptions(isAdmin: boolean): Options {
+	if (isAdmin) {
+		return {
+			cwd: WORK_DIR,
+			permissionMode: "acceptEdits",
+			allowedTools: ["Bash", "WebSearch", "WebFetch"],
+		};
+	}
+
+	return {
+		cwd: CHARACTER_DIR,
+		permissionMode: "default",
+		tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+		// Read/Grep/Globはここに入れるとcanUseToolが呼ばれず自動許可されてしまう
+		allowedTools: ["WebSearch", "WebFetch"],
+		canUseTool: canUseToolForUser,
+	};
+}
+
 // スレッドの1件目に、cc-session:UUIDという形でメッセージがあるDiscordスレッドを該当Claude Codeスレッドと自動リンクする。
-// 複雑な管理機構を持たないようにする
 const SESSION_PREFIX = "cc-session:";
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
-// MessageContentはメッセージ本文を読むために必要。これがないとcontent=""になる
 const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -41,7 +97,6 @@ const client = new Client({
 });
 
 // スレッドIDをキーにセッションIDをキャッシュする。
-// これがないとメッセージのたびにDiscord APIを叩いてスレッド履歴を取得することになる
 const sessionCache = new Map<string, string | null>();
 
 // スレッドの先頭ボットメッセージからセッションIDを探す。
@@ -71,11 +126,10 @@ async function resolveSession(thread: ThreadChannel): Promise<string | null> {
 	return id;
 }
 
-// Claude Codeにpromptを送り、最終的な返答テキストとセッションIDを返す。
-// セッションIDを次回のresumeに渡すことで、同じ会話コンテキストを継続できる
 async function runCC(
 	prompt: string | ContentBlockParam[],
 	sessionId: string | null,
+	isAdmin: boolean,
 ) {
 	let result = "";
 	let sid = sessionId;
@@ -96,12 +150,9 @@ async function runCC(
 	for await (const msg of query({
 		prompt: resolvedPrompt,
 		options: {
-			cwd: WORK_DIR,
 			model: "claude-sonnet-5-5",
 			maxTurns: 50,
-			// Discordからの操作なので確認プロンプトを出さずファイル編集を自動許可する
-			permissionMode: "acceptEdits",
-			allowedTools: ["Bash", "WebSearch", "WebFetch"],
+			...permissionOptions(isAdmin),
 			...(sessionId ? { resume: sessionId } : {}),
 			settingSources: ["project", "local"],
 		},
@@ -115,14 +166,9 @@ async function runCC(
 	return { result, sessionId: sid };
 }
 
-// 送信者ID・ユーザー名をAgentが参照できるようメッセージ本文に埋め込む。
-// /ccの初回プロンプトとスレッド内のメッセージで同じ形式にする
-function buildPrompt(
-	username: string,
-	userId: string,
-	content: string,
-): string {
-	return `[from: ${username} (${userId})]\n${content}`;
+// 送信者のユーザー名をAgentが参照できるようメッセージ本文に埋め込む。
+function buildPrompt(username: string, content: string): string {
+	return `[from: ${username}]\n${content}`;
 }
 
 // Discordの1メッセージ上限(2000文字)を超える応答を複数に分割する
@@ -179,12 +225,12 @@ client.on("interactionCreate", async (interaction) => {
 	const title = interaction.options.getString("title", true);
 	const prompt = buildPrompt(
 		interaction.user.username,
-		interaction.user.id,
 		interaction.options.getString("prompt") ?? title,
 	);
+	const isAdmin = ADMIN_IDS.has(interaction.user.id);
 
 	try {
-		const { result, sessionId } = await runCC(prompt, null);
+		const { result, sessionId } = await runCC(prompt, null, isAdmin);
 		if (!sessionId) throw new Error("no session id returned");
 
 		const channel = interaction.channel;
@@ -247,14 +293,12 @@ client.on("messageCreate", async (message) => {
 		a.contentType?.startsWith("text/"),
 	);
 
-	const textContent = buildPrompt(
-		message.author.username,
-		message.author.id,
-		message.content,
-	);
+	const textContent = buildPrompt(message.author.username, message.content);
+
+	// 権限はスレッド作成者ではなく、メッセージの送信者ごとに判定する
+	const isAdmin = ADMIN_IDS.has(message.author.id);
 
 	// 画像・PDF・テキストファイルがある場合はContentBlockParam[]に変換する。
-	// Claude SDKはテキストと画像/ドキュメントを同時に送る場合にこの形式を要求する
 	let prompt: string | ContentBlockParam[];
 	if (
 		imageAttachments.length === 0 &&
@@ -288,7 +332,11 @@ client.on("messageCreate", async (message) => {
 	}
 
 	try {
-		const { result, sessionId: newId } = await runCC(prompt, sessionId);
+		const { result, sessionId: newId } = await runCC(
+			prompt,
+			sessionId,
+			isAdmin,
+		);
 		clearInterval(typing);
 
 		// セッションIDが変わった場合(Claudeが内部でセッションを更新した場合)はキャッシュを更新する
